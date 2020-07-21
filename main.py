@@ -528,12 +528,7 @@ for i in range(max_summary_len):
     inp = nextInput(embd_summary_t, i,tf_embd,next_word_vec,N,embd_dim)
     
     
-#     if tf_train:
-#         inp = embd_summary_t[i]
-#     elif tf_train == False:
-#         inp = tf.nn.embedding_lookup(tf_embd, next_word_vec)
-#         next_word = tf.nn.embedding_lookup(tf_embd, next_word_vec)
-#         inp = tf.reshape(next_word, [N, embd_dim])
+
          
     
     
