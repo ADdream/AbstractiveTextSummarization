@@ -1,13 +1,10 @@
-# This Python 3 environment comes with many helpful analytics libraries installed
-# It is defined by the kaggle/python docker image: https://github.com/kaggle/docker-python
-# For example, here's several helpful packages to load in 
+#Text summarization using amazon reviews data. We will be using seq2seq learning with local attention model.
+#We will use bidirectional LSTM model for encoding the input sentences and single LSTM layer with an NN to generate the output
 
 import numpy as np # linear algebra
 import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
 
 
-# Input data files are available in the "../input/" directory.
-# For example, running this (by clicking run or pressing Shift+Enter) will list all files under the input directory
 
 import os
 
@@ -24,6 +21,8 @@ import string
 
 summaries = []
 texts = []
+
+#filtering the input text to remove unwanted characters. Keeping the text_max_len to 500 , min_length to 25 and summary_max_len to 30
 
 def clean(text):
     text = text.lower()
@@ -77,7 +76,7 @@ with open('/kaggle/input/amazon-fine-food-reviews/Reviews.csv') as csvfile:
 print("\n# of Data: {}".format(len(texts)))
 
 
-
+#Padding the input_text and summary using 'UNK','PAD','EOS'. we will be using glove6b100dtxt word embeddings for our input sentences
 vocab = []
 embd = []
 special_tags = ['<UNK>','<PAD>','<EOS>']
@@ -135,7 +134,7 @@ vec_summaries = [vec_summaries[idx] for idx in texts_idx]
 
 
 
-# Use first 10000 data for testing, the next 10000 data for validation, and rest for training
+#Use first 10000 data for testing, the next 10000 data for validation, and rest for training. Will be feeding the model the data in batches of 32
 
 test_summaries = vec_summaries[0:10000]
 test_texts = vec_texts[0:10000]
@@ -143,8 +142,8 @@ test_texts = vec_texts[0:10000]
 val_summaries = vec_summaries[10000:20000]
 val_texts = vec_texts[10000:20000]
 
-train_summaries = vec_summaries[20000:30000]
-train_texts = vec_texts[20000:30000]
+train_summaries = vec_summaries[20000:]
+train_texts = vec_texts[20000:]
 
 def bucket_and_batch(texts,summaries,batch_size=32):
     
@@ -263,7 +262,7 @@ with open('/kaggle/Processed_Data/Amazon_Reviews_Processed.json') as file:
         
 idx2vocab = {v:k for k,v in vocab2idx.items()}
 
-
+#The hidden memory size of LSTM is 300 and window size for our local attention is 5
 hidden_size = 300
 learning_rate = 0.001
 epochs = 5
@@ -387,7 +386,7 @@ final_encoded_state = dropout(tf.concat([hidden_forward[-1],hidden_backward[-1]]
 final_encoded_state_shape = tf.shape(final_encoded_state) #shape [ 32 600]
 
 
-
+#attention_score score(ht,hs) = htWahs where ht is the current hidden state of output layer and hs is the encoder states
 def attention_score(encoder_states,decoder_hidden_state,scope="attention_score"):
     
     with tf.variable_scope(scope,reuse=tf.AUTO_REUSE):
@@ -402,6 +401,11 @@ def attention_score(encoder_states,decoder_hidden_state,scope="attention_score")
     decoder_hidden_state = tf.reshape(decoder_hidden_state,[N,2*hidden_size,1]) #shape [32,600,1]
     
     return tf.reshape(tf.matmul(encoder_states,decoder_hidden_state),[N,S]) #shape [32,178]
+
+#In local attention the starting position for attention window is ps = S.sigmoid(v⊤.tanh(Wp.ht)). 
+#The center for that window is pt = ps+D. Then a gaussian distribution based position scores are calculated where the position
+#close to pt with window size of D will have higher values while calculating the attention scores.
+#The gaussian funtion is at(s) = align(ht,h¯s) exp(−(s − pt)2/2σ2). Then the attention score is multiplied with the gaussian_position_scores.
 
 def align(encoder_states, decoder_hidden_state,scope="attention"):
     
@@ -458,12 +462,19 @@ def body(i,gaussian_position_based_scores):
     
     return tf.reshape(scores,[N,S,1])
 
+#Based on the tf_train which is True if we are training the model and False is we are validating it,
+#we will feed the input to the decoder. During training we will be using teacher forcing method where
+#we feed the correct next word as input instead of the previous predicted word, so that the network will learn. 
+#While validating we will feed the previously predicted word as the input for the next time step.
+
 def nextInput(embd_summary_t, i,tf_embd,next_word_vec,N,embd_dim):   
 
 	    return tf.cond(tf_train,
                     lambda: embd_summary_t[i],
                     lambda: tf.reshape(tf.nn.embedding_lookup(tf_embd, next_word_vec),[N, embd_dim]))
-
+	
+	
+#SOS represents starting marker. It tells the decoder that it is about to decode the first word of the output. SOS is a trainable parameter
 with tf.variable_scope("decoder",reuse=tf.AUTO_REUSE):
     SOS = tf.get_variable("sos", shape=[1,embd_dim],
                                 dtype=tf.float32,
@@ -544,6 +555,9 @@ filtered_trainables = [var for var in tf.trainable_variables() if
 
 regularization = tf.reduce_sum([tf.nn.l2_loss(var) for var
                                 in filtered_trainables])
+
+#we will be using sparse_softmax_cross_entropy as the cost function and for accuracy
+#we will be comparing the predicted sentence with the actual output.
 
 with tf.variable_scope("loss"):
 
